@@ -11,7 +11,6 @@ import matplotlib.patches as patches
 import shutil
 import os
 
-
 # Download latest version
 path = kagglehub.dataset_download("andrewmvd/dog-and-cat-detection")
 print("Path to dataset files:", path)
@@ -120,7 +119,36 @@ def visualize_batch(dataloader):
         axes[i].axis('off')
 
     plt.show()
+    return images, bboxes, labels
 
 
 # Visualize a batch
-visualize_batch(dataloader)
+#visualize_batch(dataloader)
+images, bboxes, labels = next(iter(dataloader))
+print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
+
+from sklearn.model_selection import train_test_split
+all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
+temp_labels = []
+
+for ann in all_ann_files:
+    tree = ET.parse(ann)
+    label_name = tree.getroot().find("object/name").text
+    temp_labels.append(label_name)
+
+train_imgs, val_imgs, train_anns, val_anns = train_test_split(
+    all_img_files, 
+    all_ann_files, 
+    test_size=0.20, 
+    stratify=temp_labels, 
+    random_state=42
+)
+
+total = len(train_imgs) + len(val_imgs)
+train_pct = (len(train_imgs) / total) * 100
+val_pct = (len(val_imgs) / total) * 100
+
+print(f"Split complete:")
+print(f"  - Training:   {len(train_imgs)} images ({train_pct:.2f}%)")
+print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
