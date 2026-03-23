@@ -23,7 +23,8 @@ if not os.path.exists(destination):
 else:
     print(f"Dataset folder already exists in {destination}, skipping copy.")
 
-INPUT_IMG_SZ = 224
+#resizing done by changing this value to 112. Checked if desired result by changing it to 10 or 50 and seeing if the bounding boxes are still correct.
+INPUT_IMG_SZ = 112
 IMG_DIR = "./cat_dog_dataset/images"
 ANNOTATION_DIR = './cat_dog_dataset/annotations'
 
@@ -123,7 +124,7 @@ def visualize_batch(dataloader):
 
 
 # Visualize a batch
-#visualize_batch(dataloader)
+visualize_batch(dataloader)
 images, bboxes, labels = next(iter(dataloader))
 print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
 
