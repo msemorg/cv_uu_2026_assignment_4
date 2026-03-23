@@ -5,56 +5,74 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchsummary import summary
 
-
-# model1: returns val acc: 61.03% on cifar10
-class LeNet5_Baseline(
+class NN_model(
     nn.Module
 ):  # baseline model, modified to work with RGB images instead of pure BW images
-    def __init__(self, num_classes=10):
+    def __init__(self, num_classes=2):
         super().__init__()
-        # Layer 1: Convolute: patternmatching (3 in (RGB), 6 out (6 pattern-groups), 5x5 kernel ('viewable' window of the image in pixels. This window 'scans' over the entire image) -> Output: 28x28 pixel image because the kernel size is 5 and the stride (stepsize of window) is 1 so it ignores the edges where a full view does not fit
-        self.conv1 = nn.Conv2d(3, 6, kernel_size=5)
-        # Layer 2: Maxpooling: summarizing/shrinking image. 2x2 kernel, takes the maximum value of these 4 pixels. -> Output: 14x14 because only 1/2 of the pixels in height and  width are taken into account
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        #L1:in_channels=3 (RGB images), 16 kernels=out-channels (pattern groups), kernel_size=3 (3x3 pixel windowsize sliding over image), stride=1(stepsize), padding=1(add 1 pixel padding border) 
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
+        #L2: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+       
+        #L3: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(32)
+        #L4: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        # Layer 3: Convolute (6 in (the patterngroups from layer 2), 16 out (16 pattern-groups), 5x5 kernel) -> Output: 10x10
-        self.conv2 = nn.Conv2d(6, 16, kernel_size=5)
-        # Layer 4: MaxPool2d (2x2) -> Output: 5x5
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        #L5: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+        #L6: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        # Layer 5: Fully Connected (16*5*5 in, 120 out) because the output of the previous layer is 16*5*5 (16 pattern groups, 5x5 pixels) -> Output: 120 neurons
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        # Layer 6: Fully Connected (120 in, 84 out) -> Output: 84 neurons
-        self.fc2 = nn.Linear(120, 84)
-        # Layer 7: Fully Connected (84 in, 10 out) -> Output: 10 neurons because we have 10 classes
-        self.fc3 = nn.Linear(84, num_classes)
 
-        # relu activation function to do non-linear transformations
-        self.relu = nn.ReLU()
+        #L7: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        self.conv4 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.bn4 = nn.BatchNorm2d(64)
+        #L8: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
+        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+
+        #L9: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        self.conv5 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.bn5 = nn.BatchNorm2d(32)
+        # Flatten
+        self.flatten = nn.Flatten()
+        # Dropout
+        self.dropout = nn.Dropout(0.5)
+        #fully connected layer: 512 neurons
+        self.fc1 = nn.Linear(32 * 7 * 7, 512)
+        #output layer: 343 neurons
+        self.fc_out = nn.Linear(512, 343)
+        #sigmoid activation
+        self.sigmoid = nn.Sigmoid()
 
         # Kaiming Initialization for random starting numbers
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
+            nn.init.kaiming_uniform_(m.weight, nonlinearity="sigmoid")
 
     def forward(self, x):
-        x = self.pool1(self.relu(self.conv1(x)))
-        x = self.pool2(self.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        # No softmax is used because we use CrossEntropyLoss instead
-        x = self.fc3(x)
-        return x
+        x = self.pool1(self.relu(self.bn1(self.conv1(x))))
+        x = self.pool2(self.relu(self.bn2(self.conv2(x))))
+        x = self.pool3(self.relu(self.bn3(self.conv3(x))))
+        x = self.pool4(self.relu(self.bn4(self.conv4(x))))
+        x = self.flatten(x)
+        x = self.dropout(x)
+        x = self.sigmoid(self.fc_out(x))
+
+        return x.view(-1, 7, 7, 7)
 
 
-models = [LeNet5_Baseline]
+models = [NN_model]
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 for model_class in models:
     model = model_class().to(device)
     print(f"*** Summary of {model_class.__name__} ***")
-    summary(model, (3, 32, 32), device=str(device))
+    summary(model, (3, 112, 112), device=str(device))
