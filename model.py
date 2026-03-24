@@ -1,53 +1,47 @@
-# lenet.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchsummary import summary
 
-class NN_model(
-    nn.Module
-):  # baseline model, modified to work with RGB images instead of pure BW images
+
+class NN_model(nn.Module):
     def __init__(self, num_classes=2):
         super().__init__()
-        #L1:in_channels=3 (RGB images), 16 kernels=out-channels (pattern groups), kernel_size=3 (3x3 pixel windowsize sliding over image), stride=1(stepsize), padding=1(add 1 pixel padding border) 
+        # in_channels=3 (RGB images), 16 kernels=out-channels(pattern groups), kernel_size=3 (3x3 pixel windowsize sliding over image), stride=1(stepsize), padding=1(add 1 pixel padding border)
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(16)
-        #L2: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
+        # kernel_size=2x2, stride 2, padding 0
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
-       
-        #L3: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+
+        # 32 kernels=outchannels
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(32)
-        #L4: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #L5: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        # 64 kernels=outchannels
         self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(64)
-        #L6: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-
-        #L7: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        # 64 kernels=outchannels
         self.conv4 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
         self.bn4 = nn.BatchNorm2d(64)
-        #L8: Pooling layer: kernel_size=2x2, stride 2, zero padding 0
         self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #L9: 3x3, stride 1, zero padding 1, 32 kernels=outchannels
+        # 32 kernels=outchannels
         self.conv5 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.bn5 = nn.BatchNorm2d(32)
-        # Flatten
+        # flatten
         self.flatten = nn.Flatten()
-        # Dropout
+        # dropout
         self.dropout = nn.Dropout(0.5)
-        #fully connected layer: 512 neurons
+        # fully connected layer: 512 neurons
         self.fc1 = nn.Linear(32 * 7 * 7, 512)
-        #output layer: 343 neurons
+        # output layer: 343 neurons
         self.fc_out = nn.Linear(512, 343)
-        #sigmoid activation
-        self.relu = nn.ReLU() 
+        # sigmoid activation
+        self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
         # Kaiming Initialization for random starting numbers
