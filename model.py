@@ -47,6 +47,7 @@ class NN_model(
         #output layer: 343 neurons
         self.fc_out = nn.Linear(512, 343)
         #sigmoid activation
+        self.relu = nn.ReLU() 
         self.sigmoid = nn.Sigmoid()
 
         # Kaiming Initialization for random starting numbers
@@ -54,17 +55,18 @@ class NN_model(
 
     def _init_weights(self, m):
         if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, nonlinearity="sigmoid")
+            nn.init.kaiming_uniform_(m.weight, nonlinearity="relu")
 
     def forward(self, x):
         x = self.pool1(self.relu(self.bn1(self.conv1(x))))
         x = self.pool2(self.relu(self.bn2(self.conv2(x))))
         x = self.pool3(self.relu(self.bn3(self.conv3(x))))
         x = self.pool4(self.relu(self.bn4(self.conv4(x))))
+        x = self.relu(self.bn5(self.conv5(x)))
         x = self.flatten(x)
         x = self.dropout(x)
+        x = self.relu(self.fc1(x))
         x = self.sigmoid(self.fc_out(x))
-
         return x.view(-1, 7, 7, 7)
 
 
