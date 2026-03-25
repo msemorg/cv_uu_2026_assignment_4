@@ -10,12 +10,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import shutil
 import os
+from sklearn.model_selection import train_test_split
 
 # Download latest version
 path = kagglehub.dataset_download("andrewmvd/dog-and-cat-detection")
 print("Path to dataset files:", path)
 # Copy files to local project folder
-source = path 
+source = path
 destination = "./cat_dog_dataset"
 if not os.path.exists(destination):
     shutil.copytree(source, destination, dirs_exist_ok=True)
@@ -23,10 +24,10 @@ if not os.path.exists(destination):
 else:
     print(f"Dataset folder already exists in {destination}, skipping copy.")
 
-#resizing done by changing this value to 112. Checked if desired result by changing it to 10 or 50 and seeing if the bounding boxes are still correct.
+# resizing done by changing this value to 112. Checked if desired result by changing it to 10 or 50 and seeing if the bounding boxes are still correct.
 INPUT_IMG_SZ = 112
 IMG_DIR = "./cat_dog_dataset/images"
-ANNOTATION_DIR = './cat_dog_dataset/annotations'
+ANNOTATION_DIR = "./cat_dog_dataset/annotations"
 
 
 class CatDogDataset(Dataset):
@@ -67,15 +68,11 @@ class CatDogDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
         width, height, objects = self.parse_annotation(ann_path)
 
-        scaler_x = width / INPUT_IMG_SZ
-        scaler_y = height / INPUT_IMG_SZ
-
-        bboxes = []
-        #7x7 grid, 7 channels [conf, x, y, w, h, cat, dog]
+        # 7x7 grid, 7 channels [conf, x, y, w, h, cat, dog]
         target = torch.zeros((7, 7, 7))
         for obj in objects:
             # Normalize absolute pixels to 0.0 - 1.0 relative to whole image
-            xmin, ymin, xmax, ymax = obj['bbox']
+            xmin, ymin, xmax, ymax = obj["bbox"]
             xn = ((xmin + xmax) / 2) / width
             yn = ((ymin + ymax) / 2) / height
             wn = (xmax - xmin) / width
@@ -83,7 +80,7 @@ class CatDogDataset(Dataset):
 
             # Determine which grid cell the center falls into
             i, j = int(7 * yn), int(7 * xn)
-            
+
             # Avoid index out of bounds
             i, j = min(i, 6), min(j, 6)
 
@@ -95,7 +92,7 @@ class CatDogDataset(Dataset):
             if target[i, j, 0] == 0:
                 target[i, j, 0] = 1.0  # Confidence
                 target[i, j, 1:5] = torch.tensor([x_cell, y_cell, wn, hn])
-                target[i, j, 5 + obj['label']] = 1.0  # One-hot class
+                target[i, j, 5 + obj["label"]] = 1.0  # One-hot class
 
         if self.transform:
             image = self.transform(image)
@@ -103,22 +100,11 @@ class CatDogDataset(Dataset):
         return image, target
 
 
-# Define transformations
-transform = T.Compose([
-    T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)),
-    T.ToTensor()
-])
-
-# Initialize dataset and dataloader
-dataset = CatDogDataset(img_dir=IMG_DIR, ann_dir=ANNOTATION_DIR, transform=transform)
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True )
-
-
 # Function to visualize a batch
 def visualize_batch(dataloader):
     # 1. Unpack only TWO items now
     images, targets = next(iter(dataloader))
-    
+
     batch_size = len(images)
     fig, axes = plt.subplots(1, batch_size, figsize=(15, 5))
 
@@ -131,23 +117,23 @@ def visualize_batch(dataloader):
         axes[b].imshow(img)
 
         # 2. Iterate through the 7x7 grid
-        for i in range(7):      # Row (y)
+        for i in range(7):  # Row (y)
             for j in range(7):  # Column (x)
                 # Check if an object exists in this cell (Confidence slot 0)
                 if targets[b, i, j, 0] > 0.5:
-                    
+
                     # 3. Extract YOLO values [x_cell, y_cell, w_norm, h_norm]
                     x_cell, y_cell, w_norm, h_norm = targets[b, i, j, 1:5]
-                    
+
                     # 4. Convert back to absolute pixels (112 is INPUT_IMG_SZ)
                     # Center of the box in pixels:
                     x_center = ((j + x_cell) / 7) * 112
                     y_center = ((i + y_cell) / 7) * 112
-                    
+
                     # Width and height in pixels:
                     w_pix = w_norm * 112
                     h_pix = h_norm * 112
-                    
+
                     # Calculate xmin, ymin for the Rectangle patch
                     xmin = x_center - (w_pix / 2)
                     ymin = y_center - (h_pix / 2)
@@ -158,24 +144,43 @@ def visualize_batch(dataloader):
                     label_text = "Cat" if label == 0 else "Dog"
 
                     # Add the box
-                    rect = patches.Rectangle((xmin, ymin), w_pix, h_pix,
-                                          linewidth=2, edgecolor='r', facecolor='none')
+                    rect = patches.Rectangle(
+                        (xmin, ymin),
+                        w_pix,
+                        h_pix,
+                        linewidth=2,
+                        edgecolor="r",
+                        facecolor="none",
+                    )
                     axes[b].add_patch(rect)
-                    axes[b].text(xmin, ymin - 5, f'{label_text}', color='red', 
-                                 fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
-        
-        axes[b].axis('off')
+                    axes[b].text(
+                        xmin,
+                        ymin - 5,
+                        f"{label_text}",
+                        color="red",
+                        fontsize=10,
+                        bbox=dict(facecolor="white", alpha=0.5),
+                    )
+
+        axes[b].axis("off")
 
     plt.show()
     return images, targets
 
+
 if __name__ == "__main__":
+    # Define transformations
+    transform = T.Compose([T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)), T.ToTensor()])
+
+    # Initialize dataset and dataloader
+    dataset = CatDogDataset(img_dir=IMG_DIR, ann_dir=ANNOTATION_DIR, transform=transform)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+
     # Visualize a batch
     visualize_batch(dataloader)
     images, targets = next(iter(dataloader))
     print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
 
-    from sklearn.model_selection import train_test_split
     all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
     all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
     temp_labels = []
@@ -186,11 +191,11 @@ if __name__ == "__main__":
         temp_labels.append(label_name)
 
     train_imgs, val_imgs, train_anns, val_anns = train_test_split(
-        all_img_files, 
-        all_ann_files, 
-        test_size=0.20, 
-        stratify=temp_labels, 
-        random_state=42
+        all_img_files,
+        all_ann_files,
+        test_size=0.20,
+        stratify=temp_labels,
+        random_state=42,
     )
 
     total = len(train_imgs) + len(val_imgs)
