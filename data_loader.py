@@ -71,20 +71,36 @@ class CatDogDataset(Dataset):
         scaler_y = height / INPUT_IMG_SZ
 
         bboxes = []
+        #7x7 grid, 7 channels [conf, x, y, w, h, cat, dog]
+        target = torch.zeros((7, 7, 7))
         for obj in objects:
-            xmin = obj['bbox'][0] / scaler_x
-            ymin = obj['bbox'][1] / scaler_y
-            xmax = obj['bbox'][2] / scaler_x
-            ymax = obj['bbox'][3] / scaler_y
-            bboxes.append([xmin, ymin, xmax, ymax])  # in your assignment 4, you need to convert bbox into [x, y, w, h] and value range [0, 1]
+            # Normalize absolute pixels to 0.0 - 1.0 relative to whole image
+            xmin, ymin, xmax, ymax = obj['bbox']
+            xn = ((xmin + xmax) / 2) / width
+            yn = ((ymin + ymax) / 2) / height
+            wn = (xmax - xmin) / width
+            hn = (ymax - ymin) / height
 
-        bboxes = torch.tensor(bboxes, dtype=torch.float32)
-        labels = torch.tensor([obj["label"] for obj in objects], dtype=torch.int64)
+            # Determine which grid cell the center falls into
+            i, j = int(7 * yn), int(7 * xn)
+            
+            # Avoid index out of bounds
+            i, j = min(i, 6), min(j, 6)
+
+            # x, y relative to the specific cell (0 to 1)
+            x_cell = (7 * xn) - j
+            y_cell = (7 * yn) - i
+
+            # If cell is empty, fill it (YOLOv1 handles 1 object per cell)
+            if target[i, j, 0] == 0:
+                target[i, j, 0] = 1.0  # Confidence
+                target[i, j, 1:5] = torch.tensor([x_cell, y_cell, wn, hn])
+                target[i, j, 5 + obj['label']] = 1.0  # One-hot class
 
         if self.transform:
             image = self.transform(image)
 
-        return image, bboxes, labels
+        return image, target
 
 
 # Define transformations
@@ -95,61 +111,92 @@ transform = T.Compose([
 
 # Initialize dataset and dataloader
 dataset = CatDogDataset(img_dir=IMG_DIR, ann_dir=ANNOTATION_DIR, transform=transform)
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+dataloader = DataLoader(dataset, batch_size=4, shuffle=True )
 
 
 # Function to visualize a batch
 def visualize_batch(dataloader):
-    images, bboxes, labels = next(iter(dataloader))
-    fig, axes = plt.subplots(1, len(images), figsize=(15, 5))
+    # 1. Unpack only TWO items now
+    images, targets = next(iter(dataloader))
+    
+    batch_size = len(images)
+    fig, axes = plt.subplots(1, batch_size, figsize=(15, 5))
 
-    if len(images) == 1:
+    if batch_size == 1:
         axes = [axes]
 
-    for i, (img, bbox, label) in enumerate(zip(images, bboxes, labels)):
-        img = img.permute(1, 2, 0).numpy()
-        axes[i].imshow(img)
+    for b in range(batch_size):
+        # Prepare image for matplotlib
+        img = images[b].permute(1, 2, 0).numpy()
+        axes[b].imshow(img)
 
-        for box, lbl in zip(bbox, label):
-            xmin, ymin, xmax, ymax = box.tolist()
-            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin,
-                                     linewidth=2, edgecolor='r', facecolor='none')
-            axes[i].add_patch(rect)
-            axes[i].text(xmin, ymin - 5, f'Label: {lbl.item()}', color='red', fontsize=10,
-                         bbox=dict(facecolor='white', alpha=0.5))
-        axes[i].axis('off')
+        # 2. Iterate through the 7x7 grid
+        for i in range(7):      # Row (y)
+            for j in range(7):  # Column (x)
+                # Check if an object exists in this cell (Confidence slot 0)
+                if targets[b, i, j, 0] > 0.5:
+                    
+                    # 3. Extract YOLO values [x_cell, y_cell, w_norm, h_norm]
+                    x_cell, y_cell, w_norm, h_norm = targets[b, i, j, 1:5]
+                    
+                    # 4. Convert back to absolute pixels (112 is INPUT_IMG_SZ)
+                    # Center of the box in pixels:
+                    x_center = ((j + x_cell) / 7) * 112
+                    y_center = ((i + y_cell) / 7) * 112
+                    
+                    # Width and height in pixels:
+                    w_pix = w_norm * 112
+                    h_pix = h_norm * 112
+                    
+                    # Calculate xmin, ymin for the Rectangle patch
+                    xmin = x_center - (w_pix / 2)
+                    ymin = y_center - (h_pix / 2)
+
+                    # 5. Extract Label (Indices 5 and 6 are Cat/Dog)
+                    # Get index of the max value in the class slots
+                    label = torch.argmax(targets[b, i, j, 5:]).item()
+                    label_text = "Cat" if label == 0 else "Dog"
+
+                    # Add the box
+                    rect = patches.Rectangle((xmin, ymin), w_pix, h_pix,
+                                          linewidth=2, edgecolor='r', facecolor='none')
+                    axes[b].add_patch(rect)
+                    axes[b].text(xmin, ymin - 5, f'{label_text}', color='red', 
+                                 fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
+        
+        axes[b].axis('off')
 
     plt.show()
-    return images, bboxes, labels
+    return images, targets
 
+if __name__ == "__main__":
+    # Visualize a batch
+    visualize_batch(dataloader)
+    images, targets = next(iter(dataloader))
+    print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
 
-# Visualize a batch
-visualize_batch(dataloader)
-images, bboxes, labels = next(iter(dataloader))
-print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
+    from sklearn.model_selection import train_test_split
+    all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+    all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
+    temp_labels = []
 
-from sklearn.model_selection import train_test_split
-all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
-all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
-temp_labels = []
+    for ann in all_ann_files:
+        tree = ET.parse(ann)
+        label_name = tree.getroot().find("object/name").text
+        temp_labels.append(label_name)
 
-for ann in all_ann_files:
-    tree = ET.parse(ann)
-    label_name = tree.getroot().find("object/name").text
-    temp_labels.append(label_name)
+    train_imgs, val_imgs, train_anns, val_anns = train_test_split(
+        all_img_files, 
+        all_ann_files, 
+        test_size=0.20, 
+        stratify=temp_labels, 
+        random_state=42
+    )
 
-train_imgs, val_imgs, train_anns, val_anns = train_test_split(
-    all_img_files, 
-    all_ann_files, 
-    test_size=0.20, 
-    stratify=temp_labels, 
-    random_state=42
-)
+    total = len(train_imgs) + len(val_imgs)
+    train_pct = (len(train_imgs) / total) * 100
+    val_pct = (len(val_imgs) / total) * 100
 
-total = len(train_imgs) + len(val_imgs)
-train_pct = (len(train_imgs) / total) * 100
-val_pct = (len(val_imgs) / total) * 100
-
-print(f"Split complete:")
-print(f"  - Training:   {len(train_imgs)} images ({train_pct:.2f}%)")
-print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
+    print(f"Split complete:")
+    print(f"  - Training:   {len(train_imgs)} images ({train_pct:.2f}%)")
+    print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
