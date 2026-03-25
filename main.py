@@ -20,7 +20,7 @@ val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
 # 3. Model, Loss, Optimizer
 model = NN_model().to(device)
 criterion = YoloLoss(S=7, C=2).to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=2e-4, weight_decay=1e-5)
 
 # 4. Training Loop
 best_val_loss = float('inf')
