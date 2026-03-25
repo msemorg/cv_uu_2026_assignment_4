@@ -12,12 +12,10 @@ import shutil
 import os
 from sklearn.model_selection import train_test_split
 
-# Download latest version
 path = kagglehub.dataset_download("andrewmvd/dog-and-cat-detection")
-print("Path to dataset files:", path)
-# Copy files to local project folder
 source = path
 destination = "./cat_dog_dataset"
+
 if not os.path.exists(destination):
     shutil.copytree(source, destination, dirs_exist_ok=True)
     print(f"Successfully copied dataset to {destination}")
@@ -29,14 +27,11 @@ INPUT_IMG_SZ = 112
 IMG_DIR = "./cat_dog_dataset/images"
 ANNOTATION_DIR = "./cat_dog_dataset/annotations"
 
-
 class CatDogDataset(Dataset):
-    def __init__(self, img_dir, ann_dir, transform=None):
-        self.img_dir = img_dir
-        self.ann_dir = ann_dir
+    def __init__(self, img_files, ann_files, transform=None):
+        self.img_files = img_files
+        self.ann_files = ann_files
         self.transform = transform
-        self.img_files = sorted(glob.glob(os.path.join(img_dir, "*.png")))
-        self.ann_files = sorted(glob.glob(os.path.join(ann_dir, "*.xml")))
         self.label_map = {"cat": 0, "dog": 1}  # Label mapping
 
     def parse_annotation(self, ann_path):
@@ -168,40 +163,68 @@ def visualize_batch(dataloader):
     return images, targets
 
 
+
+# Define transformations
+transform = T.Compose([T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)), T.ToTensor()])
+
+# --- 3. Data Splitting Logic (Must come BEFORE dataset initialization) ---
+all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
+all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
+temp_labels = []
+
+for ann in all_ann_files:
+    tree = ET.parse(ann)
+    # Get the first object label for stratification
+    label_name = tree.getroot().find("object/name").text
+    temp_labels.append(label_name)
+
+train_imgs, val_imgs, train_anns, val_anns = train_test_split(
+    all_img_files, all_ann_files, test_size=0.20, stratify=temp_labels, random_state=42
+)
+
+# --- 4. Initialize Datasets and Loaders ---
+transform = T.Compose([T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)), T.ToTensor()])
+
+train_ds = CatDogDataset(train_imgs, train_anns, transform=transform)
+val_ds = CatDogDataset(val_imgs, val_anns, transform=transform)
+
+train_loader = DataLoader(train_ds, batch_size=16, shuffle=True)
+val_loader = DataLoader(val_ds, batch_size=16, shuffle=False)
+
+total = len(train_imgs) + len(val_imgs)
+train_pct = (len(train_imgs) / total) * 100
+val_pct = (len(val_imgs) / total) * 100
+
+print(f"Split complete:")
+print(f"  - Training:   {len(train_imgs)} images ({train_pct:.2f}%)")
+print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
+
+
+# --- 5. Visualization Function ---
+def visualize_batch(loader):
+    images, targets = next(iter(loader))
+    batch_size = len(images)
+    fig, axes = plt.subplots(1, min(batch_size, 4), figsize=(15, 5))
+    if batch_size == 1: axes = [axes]
+
+    for b in range(min(batch_size, 4)):
+        img = images[b].permute(1, 2, 0).numpy()
+        axes[b].imshow(img)
+        for i in range(7):
+            for j in range(7):
+                if targets[b, i, j, 0] > 0.5:
+                    x_c, y_c, w, h = targets[b, i, j, 1:5]
+                    # Math to find pixel coords
+                    px = ((j + x_c) / 7) * 112
+                    py = ((i + y_c) / 7) * 112
+                    pw, ph = w * 112, h * 112
+                    
+                    rect = patches.Rectangle((px-pw/2, py-ph/2), pw, ph, linewidth=2, edgecolor="r", facecolor="none")
+                    axes[b].add_patch(rect)
+        axes[b].axis("off")
+    plt.show()
+
+# Test run
 if __name__ == "__main__":
-    # Define transformations
-    transform = T.Compose([T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)), T.ToTensor()])
-
-    # Initialize dataset and dataloader
-    dataset = CatDogDataset(img_dir=IMG_DIR, ann_dir=ANNOTATION_DIR, transform=transform)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-
-    # Visualize a batch
-    visualize_batch(dataloader)
-    images, targets = next(iter(dataloader))
-    print(f"Single image tensor shape [C, H, W]: {images[0].shape}")
-
-    all_img_files = sorted(glob.glob(os.path.join(IMG_DIR, "*.png")))
-    all_ann_files = sorted(glob.glob(os.path.join(ANNOTATION_DIR, "*.xml")))
-    temp_labels = []
-
-    for ann in all_ann_files:
-        tree = ET.parse(ann)
-        label_name = tree.getroot().find("object/name").text
-        temp_labels.append(label_name)
-
-    train_imgs, val_imgs, train_anns, val_anns = train_test_split(
-        all_img_files,
-        all_ann_files,
-        test_size=0.20,
-        stratify=temp_labels,
-        random_state=42,
-    )
-
-    total = len(train_imgs) + len(val_imgs)
-    train_pct = (len(train_imgs) / total) * 100
-    val_pct = (len(val_imgs) / total) * 100
-
-    print(f"Split complete:")
-    print(f"  - Training:   {len(train_imgs)} images ({train_pct:.2f}%)")
-    print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
+    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
+    visualize_batch(train_loader)
