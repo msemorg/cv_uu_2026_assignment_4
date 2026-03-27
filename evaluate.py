@@ -62,6 +62,7 @@ def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
                 for i in range(7):
                     for j in range(7):
                         conf = outputs[b, i, j, 0].item()
+                        #TODO check multiple thresholds
                         if conf >= threshold:
                             label = torch.argmax(outputs[b, i, j, 5:]).item()
                             pred_boxes.append({'box': outputs[b, i, j, 1:5], 'label': label, 'conf': conf})
@@ -103,6 +104,7 @@ precisions, recalls = [], []
 
 print("Running Threshold Sweep with NMS...")
 for t in thresholds:
+    print("\n testing threshold: ", t, "\n")
     p, r, _, _ = get_metrics(model, val_loader, t, use_nms=True)
     precisions.append(p)
     recalls.append(r)
