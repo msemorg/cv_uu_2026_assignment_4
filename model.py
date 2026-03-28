@@ -41,9 +41,7 @@ class NN_model(nn.Module):
         self.fc1 = nn.Linear(32 * 7 * 7, 512)
         # output layer: 343 neurons
         self.fc_out = nn.Linear(512, 343)
-        # sigmoid activation
         self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
 
         # Kaiming Initialization for random starting numbers
         self.apply(self._init_weights)
@@ -61,7 +59,8 @@ class NN_model(nn.Module):
         x = self.flatten(x)
         x = self.dropout(x)
         x = self.relu(self.fc1(x))
-        x = self.sigmoid(self.fc_out(x))
+        x = self.fc_out(x)
+        x = torch.sigmoid(x)
         return x.view(-1, 7, 7, 7)
 
 

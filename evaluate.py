@@ -61,7 +61,7 @@ def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
                 pred_boxes = []
                 for i in range(7):
                     for j in range(7):
-                        conf = outputs[b, i, j, 0].item()
+                        conf = torch.sigmoid(outputs[b, i, j, 0]).item()
                         #TODO check multiple thresholds
                         if conf >= threshold:
                             label = torch.argmax(outputs[b, i, j, 5:]).item()
@@ -99,7 +99,7 @@ model = NN_model().to(device)
 model.load_state_dict(torch.load("best_yolo_model.pth"))
 
 # 1. Sweep for PR Curve
-thresholds = np.linspace(0.01, 0.99, 20)
+thresholds = np.linspace(0.01, 0.99, 10)
 precisions, recalls = [], []
 
 print("Running Threshold Sweep with NMS...")
@@ -108,6 +108,15 @@ for t in thresholds:
     p, r, _, _ = get_metrics(model, val_loader, t, use_nms=True)
     precisions.append(p)
     recalls.append(r)
+f1_scores = [
+2 * (p*r) / (p+r+1e-6)
+for p, r in zip(precisions, recalls)
+]
+
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx]
+
+print("Best threshold:", best_threshold)
 
 # 2. Plot Precision-Recall Curve
 plt.figure(figsize=(8, 6))
@@ -119,11 +128,16 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+_, _, y_true, y_pred = get_metrics(
+    model, val_loader, best_threshold, use_nms=True
+)
+
 # 3. Best Threshold Confusion Matrix
-# Usually, a threshold of 0.3-0.5 is best for YOLO
-_, _, y_true, y_pred = get_metrics(model, val_loader, 0.4, use_nms=True)
-cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Cat", "Dog"])
-disp.plot(cmap=plt.cm.Blues)
-plt.title("Confusion Matrix (Threshold 0.4 + NMS)")
-plt.show()
+if len(y_true) == 0:
+    print("⚠️ no detections at this threshold, try lower one")
+else:
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Cat", "Dog"])
+    disp.plot(cmap=plt.cm.Blues)
+    plt.title(f"Confusion Matrix (Threshold {best_threshold:.2f} + NMS)")
+    plt.show()

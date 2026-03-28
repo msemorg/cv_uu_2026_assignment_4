@@ -16,11 +16,12 @@ class YoloLoss(nn.Module):
 
         # --- 1. COORDINATE LOSS (x, y, w, h) ---
         # Separate x,y from w,h to avoid modifying the original tensor
-        pred_xy = predictions[..., 1:3]
+        pred_conf = torch.sigmoid(predictions[..., 0:1])   # NEW
+        pred_xy   = torch.sigmoid(predictions[..., 1:3])   # FIX
         target_xy = target[..., 1:3]
         
         # Calculate sqrt(w,h) into NEW variables (don't use = on slices)
-        pred_wh = torch.sqrt(torch.abs(predictions[..., 3:5] + 1e-6))
+        pred_wh = torch.sqrt(torch.clamp(predictions[..., 3:5], min=0))
         target_wh = torch.sqrt(target[..., 3:5])
         
         # Combine them back into new tensors
@@ -30,14 +31,14 @@ class YoloLoss(nn.Module):
         coord_loss = self.mse(exists_box * pred_box_final, exists_box * target_box_final)
 
         # --- 2. OBJECT LOSS (Confidence) ---
-        object_loss = self.mse(exists_box * predictions[..., 0:1], exists_box * target[..., 0:1])
+        object_loss = self.mse(exists_box * pred_conf, exists_box * target[..., 0:1])
 
-        # --- 3. NO OBJECT LOSS ---
-        no_obj_loss = self.mse((1 - exists_box) * predictions[..., 0:1], (1 - exists_box) * target[..., 0:1])
-
+        no_obj_loss = self.mse((1 - exists_box) * pred_conf, (1 - exists_box) * target[..., 0:1])
         # --- 4. CLASS LOSS ---
-        class_loss = self.mse(exists_box * predictions[..., 5:], exists_box * target[..., 5:])
-
+        class_loss = nn.CrossEntropyLoss(reduction="sum")(
+            predictions[..., 5:][exists_box.squeeze(-1) > 0],
+            torch.argmax(target[..., 5:][exists_box.squeeze(-1) > 0], dim=-1)
+        )
         # Total Loss
         return (self.lambda_coord * coord_loss) + object_loss + (self.lambda_noobj * no_obj_loss) + class_loss
 
