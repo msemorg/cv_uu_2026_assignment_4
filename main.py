@@ -7,9 +7,9 @@ from data_loader import CatDogDataset, train_imgs, train_anns, val_imgs, val_ann
 
 # 1. Setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EPOCHS = 300
+EPOCHS = 100
 BATCH_SIZE = 16
-
+ 
 # 2. Prepare DataLoaders using the splits from data_loader.py
 train_ds = CatDogDataset(train_imgs, train_anns, transform=transform)
 val_ds = CatDogDataset(val_imgs, val_anns, transform=transform)

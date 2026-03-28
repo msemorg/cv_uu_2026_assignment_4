@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 
 from model import NN_model
 from data_loader import val_loader
+import os
+
+results_path = "results" 
+if not os.path.exists(results_path):
+    os.makedirs(results_path)
 
 def calculate_iou(box1, box2):
     b1_x1, b1_y1 = box1[0] - box1[2] / 2, box1[1] - box1[3] / 2
@@ -61,7 +66,7 @@ def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
                 pred_boxes = []
                 for i in range(7):
                     for j in range(7):
-                        conf = torch.sigmoid(outputs[b, i, j, 0]).item()
+                        conf = outputs[b, i, j, 0].item()
                         #TODO check multiple thresholds
                         if conf >= threshold:
                             label = torch.argmax(outputs[b, i, j, 5:]).item()
@@ -98,8 +103,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = NN_model().to(device)
 model.load_state_dict(torch.load("best_yolo_model.pth"))
 
-# 1. Sweep for PR Curve
-thresholds = np.linspace(0.01, 0.99, 10)
+# 1. Sweep for PR Curve 
+thresholds = np.linspace(0.01, 0.99, 90)
 precisions, recalls = [], []
 
 print("Running Threshold Sweep with NMS...")
@@ -126,7 +131,8 @@ plt.ylabel('Precision')
 plt.title(f'Precision-Recall Curve (mAP: {abs(np.trapezoid(precisions, recalls)):.4f})')
 plt.legend()
 plt.grid(True)
-plt.show()
+plt.savefig('results/Precision_Recall_Curve.png')
+plt.close()
 
 _, _, y_true, y_pred = get_metrics(
     model, val_loader, best_threshold, use_nms=True
@@ -140,4 +146,5 @@ else:
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Cat", "Dog"])
     disp.plot(cmap=plt.cm.Blues)
     plt.title(f"Confusion Matrix (Threshold {best_threshold:.2f} + NMS)")
-    plt.show()
+    plt.savefig('results/confusion_matrix.png')
+    plt.close()

@@ -11,38 +11,45 @@ class YoloLoss(nn.Module):
         self.lambda_coord = 5.0
 
     def forward(self, predictions, target):
-        # Mask for cells that actually have an object [Batch, 7, 7, 1]
+        # predictions shape: [Batch, 7, 7, 7] -> (conf, x, y, w, h, c1, c2)
+        # target shape:      [Batch, 7, 7, 7]
+        
+        # Mask for cells that actually have an object
         exists_box = target[..., 0].unsqueeze(-1) 
 
-        # --- 1. COORDINATE LOSS (x, y, w, h) ---
-        # Separate x,y from w,h to avoid modifying the original tensor
-        pred_conf = torch.sigmoid(predictions[..., 0:1])   # NEW
-        pred_xy   = torch.sigmoid(predictions[..., 1:3])   # FIX
+        # --- 1. COORDINATE LOSS ---
+        # predictions are ALREADY sigmoided from the model. 
+        # We just extract them.
+        pred_xy = predictions[..., 1:3]
         target_xy = target[..., 1:3]
         
-        # Calculate sqrt(w,h) into NEW variables (don't use = on slices)
-        pred_wh = torch.sqrt(torch.clamp(predictions[..., 3:5], min=0))
-        target_wh = torch.sqrt(target[..., 3:5])
+        # Original YOLOv1 uses sqrt(w) and sqrt(h)
+        # Use epsilon (1e-6) inside sqrt for numerical stability
+        pred_wh = torch.sqrt(predictions[..., 3:5] + 1e-6)
+        target_wh = torch.sqrt(target[..., 3:5] + 1e-6)
         
-        # Combine them back into new tensors
-        pred_box_final = torch.cat([pred_xy, pred_wh], dim=-1)
-        target_box_final = torch.cat([target_xy, target_wh], dim=-1)
-        
-        coord_loss = self.mse(exists_box * pred_box_final, exists_box * target_box_final)
-
-        # --- 2. OBJECT LOSS (Confidence) ---
-        object_loss = self.mse(exists_box * pred_conf, exists_box * target[..., 0:1])
-
-        no_obj_loss = self.mse((1 - exists_box) * pred_conf, (1 - exists_box) * target[..., 0:1])
-        # --- 4. CLASS LOSS ---
-        class_loss = nn.CrossEntropyLoss(reduction="sum")(
-            predictions[..., 5:][exists_box.squeeze(-1) > 0],
-            torch.argmax(target[..., 5:][exists_box.squeeze(-1) > 0], dim=-1)
+        # Only calculate loss where an object exists
+        # We multiply by sqrt(lambda_coord) so when squared by MSE, it becomes lambda_coord
+        coord_loss = self.mse(
+            exists_box * torch.cat([pred_xy, pred_wh], dim=-1),
+            exists_box * torch.cat([target_xy, target_wh], dim=-1)
         )
-        # Total Loss
+
+        # --- 2 & 3. CONFIDENCE LOSS (Object & No-Object) ---
+        pred_conf = predictions[..., 0:1]
+        target_conf = target[..., 0:1]
+
+        # Loss for cells WITH an object
+        object_loss = self.mse(exists_box * pred_conf, exists_box * target_conf)
+
+        # Loss for cells WITHOUT an object (weighted by lambda_noobj)
+        no_obj_loss = self.mse((1 - exists_box) * pred_conf, (1 - exists_box) * target_conf)
+
+        # --- 4. CLASS LOSS ---
+        # Using MSE to stay strictly true to YOLOv1 paper
+        pred_class = predictions[..., 5:]
+        target_class = target[..., 5:]
+        class_loss = self.mse(exists_box * pred_class, exists_box * target_class)
+
+        # Total Loss Calculation
         return (self.lambda_coord * coord_loss) + object_loss + (self.lambda_noobj * no_obj_loss) + class_loss
-
-
-# Initialize YOLO Loss
-criterion = YoloLoss(S=7, C=2)
-
