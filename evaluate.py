@@ -11,6 +11,82 @@ results_path = "results"
 if not os.path.exists(results_path):
     os.makedirs(results_path)
 
+import matplotlib.patches as patches
+
+def save_misclassification_images(model, loader, threshold, max_images=100):
+    model.eval()
+    save_path = "results/misclassifications"
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    
+    count = 0
+    with torch.no_grad():
+        for images, targets in loader:
+            images_cuda = images.to(device)
+            outputs = model(images_cuda).cpu()
+            
+            for b in range(images.shape[0]):
+                if count >= max_images: return
+
+                # Extract GT and Predictions
+                gt_boxes = []
+                for i in range(7):
+                    for j in range(7):
+                        if targets[b, i, j, 0] > 0.5:
+                            gt_boxes.append({
+                                'box': targets[b, i, j, 1:5], 
+                                'label': torch.argmax(targets[b, i, j, 5:]).item()
+                            })
+
+                pred_boxes = []
+                for i in range(7):
+                    for j in range(7):
+                        conf = outputs[b, i, j, 0].item()
+                        if conf >= threshold:
+                            pred_boxes.append({
+                                'box': outputs[b, i, j, 1:5], 
+                                'label': torch.argmax(outputs[b, i, j, 5:]).item(),
+                                'conf': conf
+                            })
+                pred_boxes = apply_nms(pred_boxes)
+
+                # Determine if this is a "Misdetection"
+                # (Either count mismatch, or label mismatch with high IoU)
+                is_error = len(gt_boxes) != len(pred_boxes)
+                if not is_error and len(gt_boxes) > 0:
+                    for p in pred_boxes:
+                        best_iou = max([calculate_iou(p['box'], g['box']) for g in gt_boxes])
+                        if best_iou > 0.5 and p['label'] != gt_boxes[0]['label']:
+                            is_error = True
+                            break
+
+                if is_error:
+                    # Plotting
+                    img = images[b].permute(1, 2, 0).numpy()
+                    # Basic un-normalization if you used transforms.Normalize
+                    img = (img * 0.225) + 0.45 
+                    img = np.clip(img, 0, 1)
+
+                    fig, ax = plt.subplots(1)
+                    ax.imshow(img)
+                    
+                    for g in gt_boxes:
+                        box = g['box'] * 112
+                        rect = patches.Rectangle((box[0]-box[2]/2, box[1]-box[3]/2), box[2], box[3], linewidth=2, edgecolor='g', facecolor='none')
+                        ax.add_patch(rect)
+                    
+                    for p in pred_boxes:
+                        box = p['box'] * 112
+                        rect = patches.Rectangle((box[0]-box[2]/2, box[1]-box[3]/2), box[2], box[3], linewidth=2, edgecolor='r', facecolor='none')
+                        ax.add_patch(rect)
+                        ax.text(box[0]-box[2]/2, box[1]-box[3]/2, f"{p['label']} {p['conf']:.2f}", color='white', fontsize=8, backgroundcolor='red')
+
+                    plt.title(f"Misdetection {count}")
+                    plt.axis('off')
+                    plt.savefig(f"{save_path}/error_{count}.png")
+                    plt.close()
+                    count += 1
+
 def calculate_iou(box1, box2):
     b1_x1, b1_y1 = box1[0] - box1[2] / 2, box1[1] - box1[3] / 2
     b1_x2, b1_y2 = box1[0] + box1[2] / 2, box1[1] + box1[3] / 2
@@ -148,3 +224,7 @@ else:
     plt.title(f"Confusion Matrix (Threshold {best_threshold:.2f} + NMS)")
     plt.savefig('results/confusion_matrix.png')
     plt.close()
+
+print(f"Saving misclassification examples using threshold {best_threshold:.2f}...")
+save_misclassification_images(model, val_loader, best_threshold, max_images=100)
+print("Done! Check the results/misclassifications folder.")
