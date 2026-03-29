@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
+from torchinfo import summary
 
 
 
@@ -63,11 +63,9 @@ class NN_model(nn.Module):
         x = torch.sigmoid(x)
         return x.view(-1, 7, 7, 7)
 
-
-models = [NN_model]
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = NN_model().to(device)
+# Provide an example input size (Batch=1, Channels=3, Height=112, Width=112)
+summary(model, input_size=(1, 3, 112, 112))
 
-for model_class in models:
-    model = model_class().to(device)
     

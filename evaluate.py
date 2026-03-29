@@ -104,7 +104,7 @@ model = NN_model().to(device)
 model.load_state_dict(torch.load("best_yolo_model.pth"))
 
 # 1. Sweep for PR Curve 
-thresholds = np.linspace(0.01, 0.99, 90)
+thresholds = np.linspace(0.01, 0.99, 3)
 precisions, recalls = [], []
 
 print("Running Threshold Sweep with NMS...")

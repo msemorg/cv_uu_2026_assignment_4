@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 from model import NN_model
 from loss import YoloLoss
 from data_loader import CatDogDataset, train_imgs, train_anns, val_imgs, val_anns, transform
+import matplotlib.pyplot as plt
+import numpy as np
 
 # 1. Setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,44 +27,85 @@ optimizer = optim.Adam(model.parameters(), lr=2e-4, weight_decay=1e-5)
 # 4. Training Loop
 best_val_loss = float('inf')
 
+# Initialize history tracking
+history = {
+    "train_total": [], "val_total": [],
+    "train_coord": [], "val_coord": [],
+    "train_obj": [],   "val_obj": [],
+    "train_noobj": [], "val_noobj": [],
+    "train_class": [], "val_class": []
+}
+
 print(f"Training started on {device}...")
 for epoch in range(EPOCHS):
     model.train()
-    sum_train_loss = 0
+    # Trackers for this epoch's averages
+    tr_metrics = {k: 0 for k in ["total", "coord", "obj", "noobj", "class"]}
     
     for images, targets in train_loader:
         images, targets = images.to(device), targets.to(device)
         
-        # Forward
+        # 1. Forward Pass
         predictions = model(images)
-        loss = criterion(predictions, targets)
+        loss, components = criterion(predictions, targets)
         
-        # Backward
+        # 2. Backward Pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
-        sum_train_loss += loss.item()
+        # 3. Record Training Metrics
+        tr_metrics["total"] += loss.item()
+        for k in ["coord", "obj", "noobj", "class"]:
+            tr_metrics[k] += components[k]
 
     # Validation Phase
     model.eval()
-    sum_val_loss = 0
+    val_metrics = {k: 0 for k in ["total", "coord", "obj", "noobj", "class"]}
+    
     with torch.no_grad():
         for images, targets in val_loader:
             images, targets = images.to(device), targets.to(device)
             val_preds = model(images)
-            v_loss = criterion(val_preds, targets)
-            sum_val_loss += v_loss.item()
+            v_loss, v_components = criterion(val_preds, targets)
+            
+            val_metrics["total"] += v_loss.item()
+            for k in ["coord", "obj", "noobj", "class"]:
+                val_metrics[k] += v_components[k]
 
-    avg_train = sum_train_loss / len(train_loader)
-    avg_val = sum_val_loss / len(val_loader)
+    # 4. Append to History for plotting
+    for k in ["total", "coord", "obj", "noobj", "class"]:
+        history[f"train_{k}"].append(tr_metrics[k] / len(train_loader))
+        history[f"val_{k}"].append(val_metrics[k] / len(val_loader))
 
-    print(f"Epoch [{epoch+1}/{EPOCHS}] | Train Loss: {avg_train:.4f} | Val Loss: {avg_val:.4f}")
+    print(f"Epoch [{epoch+1}/{EPOCHS}] | Train Loss: {history['train_total'][-1]:.4f} | Val Loss: {history['val_total'][-1]:.4f}")
 
     # Save best model
-    if avg_val < best_val_loss:
-        best_val_loss = avg_val
+    if history['val_total'][-1] < best_val_loss:
+        best_val_loss = history['val_total'][-1]
         torch.save(model.state_dict(), "best_yolo_model.pth")
         print("--> Saved Best Model")
 
-print("Training Complete!")
+def plot_yolo_losses(history):
+    epochs = range(1, len(history["train_total"]) + 1)
+    loss_names = ["total", "coord", "obj", "noobj", "class"]
+    titles = ["Total Loss", "Coordinate Loss (λ_coord)", "Object Confidence", "No-Object Confidence", "Class Probability"]
+    
+    plt.figure(figsize=(15, 10))
+    
+    for i, (name, title) in enumerate(zip(loss_names, titles)):
+        plt.subplot(2, 3, i + 1)
+        plt.plot(epochs, history[f"train_{name}"], 'b', label='Train')
+        plt.plot(epochs, history[f"val_{name}"], 'r', label='Val')
+        plt.title(title)
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True)
+        
+    plt.tight_layout()
+    plt.savefig("yolo_loss_breakdown.png")
+    plt.show()
+
+# Call after training is complete
+plot_yolo_losses(history)
