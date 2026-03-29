@@ -18,8 +18,8 @@ class YoloLoss(nn.Module):
         pred_xy = predictions[..., 1:3]
         target_xy = target[..., 1:3]
         
-        pred_wh = torch.sqrt(predictions[..., 3:5] + 1e-6)
-        target_wh = torch.sqrt(target[..., 3:5] + 1e-6)
+        pred_wh = predictions[..., 3:5]
+        target_wh = target[..., 3:5]
 
         coord_loss = self.mse(
             exists_box * torch.cat([pred_xy, pred_wh], dim=-1),

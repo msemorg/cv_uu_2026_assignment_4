@@ -4,7 +4,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
 from model import NN_model
-from data_loader import val_loader
+from data_loader import val_loader, train_loader
 import os
 
 results_path = "results" 
@@ -186,7 +186,7 @@ precisions, recalls = [], []
 print("Running Threshold Sweep with NMS...")
 for t in thresholds:
     print("\n testing threshold: ", t, "\n")
-    p, r, _, _ = get_metrics(model, val_loader, t, use_nms=True)
+    p, r, _, _ = get_metrics(model, train_loader, t, use_nms=True)
     precisions.append(p)
     recalls.append(r)
 f1_scores = [
@@ -226,5 +226,5 @@ else:
     plt.close()
 
 print(f"Saving misclassification examples using threshold {best_threshold:.2f}...")
-save_misclassification_images(model, val_loader, best_threshold, max_images=100)
+save_misclassification_images(model, val_loader, best_threshold, max_images=20)
 print("Done! Check the results/misclassifications folder.")
