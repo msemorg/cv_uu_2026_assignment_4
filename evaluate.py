@@ -59,71 +59,42 @@ def save_misclassification_images(model, loader, threshold, max_images=10):
                             )
                 pred_boxes = apply_nms(pred_boxes)
 
-                # 2. Error Logic
-                is_error = len(gt_boxes) != len(pred_boxes)
-                if not is_error and len(gt_boxes) > 0:
-                    for p in pred_boxes:
-                        best_iou = max(
-                            [calculate_iou(p["box"], g["box"]) for g in gt_boxes]
-                        )
-                        if best_iou > 0.3 and p["label"] != gt_boxes[0]["label"]:
-                            is_error = True
-                            break
+        # --- Replace Section 2 (Error Logic) with this ---
+        error_type = ""
+        if len(gt_boxes) > len(pred_boxes):
+            error_type = "False Negative (Missed Object)"
+            is_error = True
+        elif len(pred_boxes) > len(gt_boxes):
+            error_type = "False Positive (Ghost Detection)"
+            is_error = True
+        else:
+            # Same number of boxes, check for class or localization errors
+            for p in pred_boxes:
+                ious = [calculate_iou(p["box"], g["box"]) for g in gt_boxes]
+                best_iou = max(ious) if ious else 0
+                best_gt_idx = np.argmax(ious) if ious else 0
+                
+                if best_iou < 0.3:
+                    error_type = "Poor Localization"
+                    is_error = True
+                elif p["label"] != gt_boxes[best_gt_idx]["label"]:
+                    error_type = f"Wrong Class (Pred:{p['label']} vs GT:{gt_boxes[best_gt_idx]['label']})"
+                    is_error = True
 
-                # 3. Plotting (Corrected Indentation and Math)
-                if is_error:
-                    img = images[b].permute(1, 2, 0).numpy()
-                    img = (img * 0.225) + 0.45
-                    img = np.clip(img, 0, 1)
-
-                    fig, ax = plt.subplots(1)
-                    ax.imshow(img)
-
-                    for g in gt_boxes:
-                        i, j = g["grid"]
-                        x_c, y_c, w, h = g["box"]
-                        px = ((j + x_c) / 7) * 112
-                        py = ((i + y_c) / 7) * 112
-                        pw, ph = w * 112, h * 112
-                        rect = patches.Rectangle(
-                            (px - pw / 2, py - ph / 2),
-                            pw,
-                            ph,
-                            linewidth=2,
-                            edgecolor="g",
-                            facecolor="none",
-                        )
-                        ax.add_patch(rect)
-
-                    for p in pred_boxes:
-                        i, j = p["grid"]
-                        x_c, y_c, w, h = p["box"]
-                        px = ((j + x_c) / 7) * 112
-                        py = ((i + y_c) / 7) * 112
-                        pw, ph = w * 112, h * 112
-                        rect = patches.Rectangle(
-                            (px - pw / 2, py - ph / 2),
-                            pw,
-                            ph,
-                            linewidth=2,
-                            edgecolor="r",
-                            facecolor="none",
-                        )
-                        ax.add_patch(rect)
-                        ax.text(
-                            px - pw / 2,
-                            py - ph / 2,
-                            f"{p['label']} {p['conf']:.2f}",
-                            color="white",
-                            fontsize=8,
-                            backgroundcolor="red",
-                        )
-
-                    plt.title(f"Misdetection {count}")
-                    plt.axis("off")
-                    plt.savefig(f"{save_path}/error_{count}.png")
-                    plt.close()
-                    count += 1
+        # --- Replace Section 3 (Plotting Title) ---
+        if is_error:
+            # ... (your existing image processing) ...
+            
+            # Add a descriptive title so you know WHY it's in this folder
+            plt.title(f"Error {count}: {error_type}\nGreen=GT, Red=Pred", fontsize=10, color='red')
+            
+            # Optional: Add text to the side or bottom with details
+            info_text = f"Pred Conf: {pred_boxes[0]['conf']:.2f}" if pred_boxes else "No Detection"
+            plt.figtext(0.5, 0.01, info_text, wrap=True, horizontalalignment='center', fontsize=9)
+            
+            # Save with a filename that includes the error type for easy sorting
+            clean_error_name = error_type.split('(')[0].strip().replace(" ", "_")
+            plt.savefig(f"{save_path}/{clean_error_name}_{count}.png")
 
 
 def calculate_iou(box1, box2):
@@ -242,7 +213,7 @@ model.load_state_dict(torch.load("best_yolo_model.pth"))
 
 # 1. Denser Sweep for PR Curve & Optimal Threshold
 # We use more points (20+) to get a smooth curve and accurate best threshold
-thresholds = np.linspace(0.5504, 0.5504, num=1)  # Adjust range and num as needed
+thresholds = np.linspace(0.01, 0.99, num=20)  # Adjust range and num as needed
 precisions, recalls = [], []
 
 print("Running Threshold Sweep for mAP calculation...")
@@ -267,6 +238,7 @@ for t in thresholds:
 f1_scores = [2 * (p * r) / (p + r + 1e-6) for p, r in zip(precisions, recalls)]
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx]
+print(f"Best Threshold based on F1-Score: {best_threshold:.4f} with F1: {f1_scores[best_idx]:.4f}")
 max_f1 = f1_scores[best_idx]
 
 # Calculate mAP using the trapezoidal rule (area under PR curve)

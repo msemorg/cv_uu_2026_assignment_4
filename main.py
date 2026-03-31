@@ -13,7 +13,7 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EPOCHS = 100
 BATCH_SIZE = 8
-TRAIN_NEW_MODEL = True  # Set to False to load and evaluate
+TRAIN_NEW_MODEL = False  # Set to False to load and evaluate
 
 
 train_ds = CatDogDataset(train_imgs, train_anns, transform=transform)

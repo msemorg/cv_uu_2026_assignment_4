@@ -7,7 +7,7 @@ class YoloLoss(nn.Module):
         self.mse = nn.MSELoss(reduction="sum")
         self.S = S
         self.C = C
-        self.lambda_noobj = 0.5
+        self.lambda_noobj = 0.1
         self.lambda_coord = 5.0
 
     def forward(self, predictions, target):
