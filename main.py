@@ -8,13 +8,12 @@ from torchsummary import summary
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
-from torchvision.ops import nms
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EPOCHS = 100
-BATCH_SIZE = 16
-TRAIN_NEW_MODEL = False  # Set to False to load and evaluate
+BATCH_SIZE = 8
+TRAIN_NEW_MODEL = True  # Set to False to load and evaluate
 
 
 train_ds = CatDogDataset(train_imgs, train_anns, transform=transform)
@@ -63,18 +62,27 @@ def find_optimal_threshold(model, loader, device):
 
 if TRAIN_NEW_MODEL:
     optimizer = optim.Adam(model.parameters(), lr=2e-4, weight_decay=1e-5)
+    
+    # Initialize the scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',    # 'min' because we want to minimize validation loss
+        factor=0.5,   # Multiply LR by 0.5 when triggered (2e-4 -> 1e-4)
+        patience=5   # Wait for 5 epochs of no improvement before dropping
+    )
     best_val_loss = float('inf')
     history = {k: [] for k in ["train_total", "val_total", "train_coord", "val_coord", "train_obj", "val_obj", "train_noobj", "val_noobj", "train_class", "val_class"]}
     
     for epoch in range(EPOCHS):
         model.train()
+        train_loss = 0
         tr_metrics = {k: 0 for k in ["total", "coord", "obj", "noobj", "class"]}
         
         for images, targets in train_loader:
             images, targets = images.to(device), targets.to(device)
-            predictions = model(images).cpu()
+            predictions = model(images) # Keep it on GPU
             loss, components = criterion(predictions, targets)
-            
+            loss = loss / images.size(0) # Normalize by batch size
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -105,6 +113,8 @@ if TRAIN_NEW_MODEL:
             best_val_loss = history['val_total'][-1]
             torch.save(model.state_dict(), "best_yolo_model.pth")
             print("--> Saved Best Model")
+
+    scheduler.step(history['val_total'][-1])
 
     model.load_state_dict(torch.load("best_yolo_model.pth"))
     best_thresh, best_f1 = find_optimal_threshold(model, val_loader, device)

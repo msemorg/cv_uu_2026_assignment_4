@@ -18,9 +18,16 @@ class YoloLoss(nn.Module):
         pred_xy = predictions[..., 1:3]
         target_xy = target[..., 1:3]
         
-        pred_wh = predictions[..., 3:5]
-        target_wh = target[..., 3:5]
+        # Use torch.clamp to prevent taking the square root of a negative number (due to noise)
+        # and to avoid NaN gradients at zero.
+        pred_wh = torch.sqrt(torch.clamp(predictions[..., 3:5], min=1e-6))
+        target_wh = torch.sqrt(target[..., 3:5])
 
+        # Keep xy as is
+        pred_xy = predictions[..., 1:3]
+        target_xy = target[..., 1:3]
+
+        # Combine for coordinate loss
         coord_loss = self.mse(
             exists_box * torch.cat([pred_xy, pred_wh], dim=-1),
             exists_box * torch.cat([target_xy, target_wh], dim=-1)
@@ -49,7 +56,7 @@ class YoloLoss(nn.Module):
         total_loss = weighted_coord + object_loss + weighted_noobj + class_loss
         
         # Return total loss AND a dictionary of components for plotting
-        return total_loss, {
+        return total_loss / predictions.shape[0], {
             "coord": weighted_coord.item(),
             "obj": object_loss.item(),
             "noobj": weighted_noobj.item(),

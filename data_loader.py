@@ -12,6 +12,7 @@ import shutil
 import os
 from sklearn.model_selection import train_test_split
 
+SHOW_VISUALIZATION = False # Set to False to skip visualization
 path = kagglehub.dataset_download("andrewmvd/dog-and-cat-detection")
 source = path
 destination = "./cat_dog_dataset"
@@ -148,11 +149,9 @@ def visualize_batch(loader):
         axes[b].imshow(img)
 
         # Draw the 7x7 grid (Moved outside the object loop)
-        grid_size = INPUT_IMG_SZ / 7
-        for step in range(8):  # 0 to 7 to cover all lines
-            axes[b].axhline(step * grid_size, color="white", linewidth=0.8, alpha=0.6)
-            axes[b].axvline(step * grid_size, color="white", linewidth=0.8, alpha=0.6)
-
+        for step in range(0, 113, 112 // 7):
+            axes[b].axhline(step, color='white', linewidth=0.5, alpha=0.5)
+            axes[b].axvline(step, color='white', linewidth=0.5, alpha=0.5)
         for i in range(7):
             for j in range(7):
                 if targets[b, i, j, 0] > 0.5:
@@ -163,7 +162,7 @@ def visualize_batch(loader):
                     py = ((i + y_c) / 7) * INPUT_IMG_SZ
                     pw, ph = w * INPUT_IMG_SZ, h * INPUT_IMG_SZ
 
-                    # Create Rectangle
+                    # draw ectangle
                     rect = patches.Rectangle(
                         (px - pw / 2, py - ph / 2),
                         pw,
@@ -174,7 +173,7 @@ def visualize_batch(loader):
                     )
                     axes[b].add_patch(rect)
 
-                    # Optional: Draw a small dot at the center to verify grid cell ownership
+                    # Draw a small dot at the center to verify grid cell middle
                     axes[b].plot(px, py, "ro", markersize=3)
 
         axes[b].axis("off")
@@ -183,4 +182,5 @@ def visualize_batch(loader):
 
 
 print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
-visualize_batch(train_loader)
+if SHOW_VISUALIZATION:
+    visualize_batch(train_loader)
