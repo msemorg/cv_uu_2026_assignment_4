@@ -22,10 +22,11 @@ if not os.path.exists(destination):
 else:
     print(f"Dataset folder already exists in {destination}, skipping copy.")
 
-# resizing done by changing this value to 112. Checked if desired result by changing it to 10 or 50 and seeing if the bounding boxes are still correct.
+# resizing done by changing this value to 112. Checked if desired result by changing it to 20 pixels and seeing if the bounding boxes are still correct.
 INPUT_IMG_SZ = 112
 IMG_DIR = "./cat_dog_dataset/images"
 ANNOTATION_DIR = "./cat_dog_dataset/annotations"
+
 
 class CatDogDataset(Dataset):
     def __init__(self, img_files, ann_files, transform=None):
@@ -95,75 +96,6 @@ class CatDogDataset(Dataset):
         return image, target
 
 
-# Function to visualize a batch
-def visualize_batch(dataloader):
-    # 1. Unpack only TWO items now
-    images, targets = next(iter(dataloader))
-
-    batch_size = len(images)
-    fig, axes = plt.subplots(1, batch_size, figsize=(15, 5))
-
-    if batch_size == 1:
-        axes = [axes]
-
-    for b in range(batch_size):
-        # Prepare image for matplotlib
-        img = images[b].permute(1, 2, 0).numpy()
-        axes[b].imshow(img)
-
-        # 2. Iterate through the 7x7 grid
-        for i in range(7):  # Row (y)
-            for j in range(7):  # Column (x)
-                # Check if an object exists in this cell (Confidence slot 0)
-                if targets[b, i, j, 0] > 0.5:
-
-                    # 3. Extract YOLO values [x_cell, y_cell, w_norm, h_norm]
-                    x_cell, y_cell, w_norm, h_norm = targets[b, i, j, 1:5]
-
-                    # 4. Convert back to absolute pixels (112 is INPUT_IMG_SZ)
-                    # Center of the box in pixels:
-                    x_center = ((j + x_cell) / 7) * 112
-                    y_center = ((i + y_cell) / 7) * 112
-
-                    # Width and height in pixels:
-                    w_pix = w_norm * 112
-                    h_pix = h_norm * 112
-
-                    # Calculate xmin, ymin for the Rectangle patch
-                    xmin = x_center - (w_pix / 2)
-                    ymin = y_center - (h_pix / 2)
-
-                    # 5. Extract Label (Indices 5 and 6 are Cat/Dog)
-                    # Get index of the max value in the class slots
-                    label = torch.argmax(targets[b, i, j, 5:]).item()
-                    label_text = "Cat" if label == 0 else "Dog"
-
-                    # Add the box
-                    rect = patches.Rectangle(
-                        (xmin, ymin),
-                        w_pix,
-                        h_pix,
-                        linewidth=2,
-                        edgecolor="r",
-                        facecolor="none",
-                    )
-                    axes[b].add_patch(rect)
-                    axes[b].text(
-                        xmin,
-                        ymin - 5,
-                        f"{label_text}",
-                        color="red",
-                        fontsize=10,
-                        bbox=dict(facecolor="white", alpha=0.5),
-                    )
-
-        axes[b].axis("off")
-
-    plt.show()
-    return images, targets
-
-
-
 # Define transformations
 transform = T.Compose([T.Resize((INPUT_IMG_SZ, INPUT_IMG_SZ)), T.ToTensor()])
 
@@ -204,27 +136,51 @@ print(f"  - Validation: {len(val_imgs)} images ({val_pct:.2f}%)")
 def visualize_batch(loader):
     images, targets = next(iter(loader))
     batch_size = len(images)
-    fig, axes = plt.subplots(1, min(batch_size, 4), figsize=(15, 5))
-    if batch_size == 1: axes = [axes]
+    # Display up to 4 images
+    num_to_show = min(batch_size, 4)
+    fig, axes = plt.subplots(1, num_to_show, figsize=(15, 5))
 
-    for b in range(min(batch_size, 4)):
+    if num_to_show == 1:
+        axes = [axes]
+
+    for b in range(num_to_show):
         img = images[b].permute(1, 2, 0).numpy()
         axes[b].imshow(img)
+
+        # Draw the 7x7 grid (Moved outside the object loop)
+        grid_size = INPUT_IMG_SZ / 7
+        for step in range(8):  # 0 to 7 to cover all lines
+            axes[b].axhline(step * grid_size, color="white", linewidth=0.8, alpha=0.6)
+            axes[b].axvline(step * grid_size, color="white", linewidth=0.8, alpha=0.6)
+
         for i in range(7):
             for j in range(7):
                 if targets[b, i, j, 0] > 0.5:
                     x_c, y_c, w, h = targets[b, i, j, 1:5]
-                    # Math to find pixel coords
-                    px = ((j + x_c) / 7) * 112
-                    py = ((i + y_c) / 7) * 112
-                    pw, ph = w * 112, h * 112
-                    
-                    rect = patches.Rectangle((px-pw/2, py-ph/2), pw, ph, linewidth=2, edgecolor="r", facecolor="none")
+
+                    # Convert cell-relative coordinates to absolute pixel coordinates
+                    px = ((j + x_c) / 7) * INPUT_IMG_SZ
+                    py = ((i + y_c) / 7) * INPUT_IMG_SZ
+                    pw, ph = w * INPUT_IMG_SZ, h * INPUT_IMG_SZ
+
+                    # Create Rectangle
+                    rect = patches.Rectangle(
+                        (px - pw / 2, py - ph / 2),
+                        pw,
+                        ph,
+                        linewidth=2,
+                        edgecolor="r",
+                        facecolor="none",
+                    )
                     axes[b].add_patch(rect)
+
+                    # Optional: Draw a small dot at the center to verify grid cell ownership
+                    axes[b].plot(px, py, "ro", markersize=3)
+
         axes[b].axis("off")
+    plt.tight_layout()
     plt.show()
 
-# Test run
-if __name__ == "__main__":
-    print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
-    visualize_batch(train_loader)
+
+print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
+visualize_batch(train_loader)
