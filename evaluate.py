@@ -328,6 +328,8 @@ if len(y_true) > 0:
     plt.savefig("results/confusion_matrix_full.png")
     plt.close()
 
+
+
 # Save Misclassifications
 print(f" Saving misclassification examples...")
 save_misclassification_images(model, val_loader, best_threshold, max_images=20)

@@ -21,7 +21,7 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 EPOCHS = 100
 BATCH_SIZE = 8
-TRAIN_NEW_MODEL = False  # Set to False to load and evaluate
+TRAIN_NEW_MODEL = True  # Set to False to load and evaluate
 
 
 train_ds = CatDogDataset(train_imgs, train_anns, transform=transform, use_augment=True)
@@ -67,53 +67,69 @@ def find_optimal_threshold(model, loader, device):
 
     return best_threshold, f1_scores[best_idx]
 
+def plot_training_history(history):
+    """
+    Generates the multi-panel loss plot similar to your uploaded image.
+    history: dictionary containing lists of losses (train/val)
+    """
+    epochs = range(1, len(history["train_total"]) + 1)
+    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+    fig.suptitle('YOLO Training Metrics Analysis', fontsize=16)
+
+    metrics = [
+        ("total", "Total Loss"),
+        ("coord", "Coordinate Loss (λ_coord)"),
+        ("obj", "Object Confidence"),
+        ("noobj", "No-Object Confidence"),
+        ("class", "Class Probability")
+    ]
+
+    for i, (key, title) in enumerate(metrics):
+        row, col = divmod(i, 3)
+        axs[row, col].plot(epochs, history[f"train_{key}"], 'b', label='Train')
+        axs[row, col].plot(epochs, history[f"val_{key}"], 'r', label='Val')
+        axs[row, col].set_title(title)
+        axs[row, col].set_xlabel('Epochs')
+        axs[row, col].set_ylabel('Loss')
+        axs[row, col].grid(True)
+        axs[row, col].legend()
+
+    
+    axs[1, 2].axis('off')
+    
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig("results/training_history_analysis.png")
+    plt.show()
+
 
 if TRAIN_NEW_MODEL:
     optimizer = optim.Adam(model.parameters(), lr=2e-4, weight_decay=1e-5)
-
-    # Initialize the scheduler
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",  # 'min' because we want to minimize validation loss
-        factor=0.5,  # Multiply LR by 0.5 when triggered (2e-4 -> 1e-4)
-        patience=5,  # Wait for 5 epochs of no improvement before dropping
-    )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)
+    
     best_val_loss = float("inf")
-    history = {
-        k: []
-        for k in [
-            "train_total",
-            "val_total",
-            "train_coord",
-            "val_coord",
-            "train_obj",
-            "val_obj",
-            "train_noobj",
-            "val_noobj",
-            "train_class",
-            "val_class",
-        ]
-    }
+    history = {k: [] for k in ["train_total", "val_total", "train_coord", "val_coord", 
+                               "train_obj", "val_obj", "train_noobj", "val_noobj", 
+                               "train_class", "val_class"]}
 
     for epoch in range(EPOCHS):
         model.train()
-        train_loss = 0
         tr_metrics = {k: 0 for k in ["total", "coord", "obj", "noobj", "class"]}
 
+        # --- Training Loop ---
         for images, targets, _ in train_loader:
             images, targets = images.to(device), targets.to(device)
-            predictions = model(images)  # Keep it on GPU
+            predictions = model(images)
             loss, components = criterion(predictions, targets)
-            loss = loss / images.size(0)  # Normalize by batch size
+            
             optimizer.zero_grad()
-            loss.backward()
+            (loss / images.size(0)).backward() # Normalize by batch
             optimizer.step()
 
             tr_metrics["total"] += loss.item()
             for k in ["coord", "obj", "noobj", "class"]:
                 tr_metrics[k] += components[k]
 
-        # Validation
+        # --- Validation Loop ---
         model.eval()
         val_metrics = {k: 0 for k in ["total", "coord", "obj", "noobj", "class"]}
         with torch.no_grad():
@@ -121,28 +137,31 @@ if TRAIN_NEW_MODEL:
                 images, targets = images.to(device), targets.to(device)
                 val_preds = model(images)
                 v_loss, v_components = criterion(val_preds, targets)
+                
                 val_metrics["total"] += v_loss.item()
                 for k in ["coord", "obj", "noobj", "class"]:
                     val_metrics[k] += v_components[k]
 
+        # --- End of Epoch: Update History ---
         for k in ["total", "coord", "obj", "noobj", "class"]:
             history[f"train_{k}"].append(tr_metrics[k] / len(train_loader))
             history[f"val_{k}"].append(val_metrics[k] / len(val_loader))
 
-        print(
-            f"Epoch [{epoch+1}/{EPOCHS}] | Train Loss: {history['train_total'][-1]:.4f} | Val Loss: {history['val_total'][-1]:.4f}"
-        )
+        print(f"Epoch [{epoch+1}/{EPOCHS}] | Train: {history['train_total'][-1]:.4f} | Val: {history['val_total'][-1]:.4f}")
 
         if history["val_total"][-1] < best_val_loss:
             best_val_loss = history["val_total"][-1]
             torch.save(model.state_dict(), "best_yolo_model.pth")
             print("--> Saved Best Model")
 
-    scheduler.step(history["val_total"][-1])
+        # Update plots and LR
+        scheduler.step(history["val_total"][-1])
 
+    # --- Training Finished ---
     model.load_state_dict(torch.load("best_yolo_model.pth"))
-    best_thresh, best_f1, _ = find_optimal_threshold(model, val_loader, device)
+    best_thresh, best_f1 = find_optimal_threshold(model, val_loader, device) # Fixed Unpacking
     print(f"Training Complete. Optimal Threshold: {best_thresh:.4f}")
+    plot_training_history(history)
 
 else:
     print("Loading existing model weights...")

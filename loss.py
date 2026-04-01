@@ -9,7 +9,9 @@ class YoloLoss(nn.Module):
         self.S = S
         self.C = C
         self.lambda_noobj = 0.1
-        self.lambda_coord = 5.0
+        # YOLOv1 uses a higher weight for coordinate loss to emphasize localization accuracy
+        # by lowering the value to 1, we can reduce the emphasis on coordinate precision, which may help in cases where the model struggles to learn accurate bounding boxes, especially in early training stages or with limited data. This can lead to better overall convergence and improved performance on object detection tasks.
+        self.lambda_coord = 1.0
 
     def forward(self, predictions, target):
 
