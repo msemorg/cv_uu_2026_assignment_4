@@ -4,34 +4,43 @@ import torch.nn.functional as F
 from torchinfo import summary
 
 
-
-#Total: about  1,060,000 parameters
+# Total: about  1,060,000 parameters
 class NN_model(nn.Module):
     def __init__(self, num_classes=2):
         super().__init__()
-        #C1- in_channels=3 (RGB images), 16 kernels=out-channels(pattern groups), kernel_size=3 (3x3 pixel windowsize sliding over image), stride=1(stepsize), padding=1(add 1 pixel padding border)
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
+        # C1- in_channels=3 (RGB images), 16 kernels=out-channels(pattern groups), kernel_size=3 (3x3 pixel windowsize sliding over image), stride=1(stepsize), padding=1(add 1 pixel padding border)
+        self.conv1 = nn.Conv2d(
+            in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1
+        )
         self.bn1 = nn.BatchNorm2d(16)
         # kernel_size=2x2, stride 2, padding 0
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #C2- 32 kernels=outchannels
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        # C2- 32 kernels=outchannels
+        self.conv2 = nn.Conv2d(
+            in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1
+        )
         self.bn2 = nn.BatchNorm2d(32)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #C3- 64 kernels=outchannels
-        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        # C3- 64 kernels=outchannels
+        self.conv3 = nn.Conv2d(
+            in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1
+        )
         self.bn3 = nn.BatchNorm2d(64)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #C4- 64 kernels=outchannels
-        self.conv4 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1)
+        # C4- 64 kernels=outchannels
+        self.conv4 = nn.Conv2d(
+            in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1
+        )
         self.bn4 = nn.BatchNorm2d(64)
         self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        #FINAL CONV LAYER- 32 kernels=outchannels
-        self.conv5 = nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1)
+        # FINAL CONV LAYER- 32 kernels=outchannels
+        self.conv5 = nn.Conv2d(
+            in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1
+        )
         self.bn5 = nn.BatchNorm2d(32)
         # flatten
         self.flatten = nn.Flatten()
@@ -63,9 +72,8 @@ class NN_model(nn.Module):
         x = torch.sigmoid(x)
         return x.view(-1, 7, 7, 7)
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = NN_model().to(device)
-# Provide an example input size (Batch=1, Channels=3, Height=112, Width=112)
-summary(model, input_size=(1, 3, 112, 112))
 
-    
+summary(model, input_size=(1, 3, 112, 112))

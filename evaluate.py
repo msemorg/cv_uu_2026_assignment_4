@@ -4,8 +4,8 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
 from model import NN_model
-from data_loader import val_loader, train_loader
 import os
+from main import train_loader, val_loader, device
 
 results_path = "results"
 if not os.path.exists(results_path):
@@ -21,8 +21,10 @@ def save_misclassification_images(model, loader, threshold, max_images=10):
         os.makedirs(save_path)
 
     count = 0
+    INPUT_IMG_SZ = 112
+
     with torch.no_grad():
-        for images, targets in loader:
+        for images, targets, _ in loader:
             images_cuda = images.to(device)
             outputs = model(images_cuda).cpu()
 
@@ -30,7 +32,7 @@ def save_misclassification_images(model, loader, threshold, max_images=10):
                 if count >= max_images:
                     return
 
-                # 1. Extract GT and Predictions with Grid Info
+                # Extract GT Boxes
                 gt_boxes = []
                 for i in range(7):
                     for j in range(7):
@@ -39,11 +41,11 @@ def save_misclassification_images(model, loader, threshold, max_images=10):
                                 {
                                     "box": targets[b, i, j, 1:5],
                                     "label": torch.argmax(targets[b, i, j, 5:]).item(),
-                                    "grid": (i, j),  # Added this\
-                                    "matched": False,
+                                    "grid": (i, j),
                                 }
                             )
 
+                # Extract Pred Boxes
                 pred_boxes = []
                 for i in range(7):
                     for j in range(7):
@@ -54,47 +56,92 @@ def save_misclassification_images(model, loader, threshold, max_images=10):
                                     "box": outputs[b, i, j, 1:5],
                                     "label": torch.argmax(outputs[b, i, j, 5:]).item(),
                                     "conf": conf,
-                                    "grid": (i, j),  # Added this
+                                    "grid": (i, j),
                                 }
                             )
+
                 pred_boxes = apply_nms(pred_boxes)
 
-        # --- Replace Section 2 (Error Logic) with this ---
-        error_type = ""
-        if len(gt_boxes) > len(pred_boxes):
-            error_type = "False Negative (Missed Object)"
-            is_error = True
-        elif len(pred_boxes) > len(gt_boxes):
-            error_type = "False Positive (Ghost Detection)"
-            is_error = True
-        else:
-            # Same number of boxes, check for class or localization errors
-            for p in pred_boxes:
-                ious = [calculate_iou(p["box"], g["box"]) for g in gt_boxes]
-                best_iou = max(ious) if ious else 0
-                best_gt_idx = np.argmax(ious) if ious else 0
-                
-                if best_iou < 0.3:
-                    error_type = "Poor Localization"
-                    is_error = True
-                elif p["label"] != gt_boxes[best_gt_idx]["label"]:
-                    error_type = f"Wrong Class (Pred:{p['label']} vs GT:{gt_boxes[best_gt_idx]['label']})"
-                    is_error = True
+                # Determine Error Type
+                is_error = False
+                error_type = "Correct"
 
-        # --- Replace Section 3 (Plotting Title) ---
-        if is_error:
-            # ... (your existing image processing) ...
-            
-            # Add a descriptive title so you know WHY it's in this folder
-            plt.title(f"Error {count}: {error_type}\nGreen=GT, Red=Pred", fontsize=10, color='red')
-            
-            # Optional: Add text to the side or bottom with details
-            info_text = f"Pred Conf: {pred_boxes[0]['conf']:.2f}" if pred_boxes else "No Detection"
-            plt.figtext(0.5, 0.01, info_text, wrap=True, horizontalalignment='center', fontsize=9)
-            
-            # Save with a filename that includes the error type for easy sorting
-            clean_error_name = error_type.split('(')[0].strip().replace(" ", "_")
-            plt.savefig(f"{save_path}/{clean_error_name}_{count}.png")
+                if len(gt_boxes) > len(pred_boxes):
+                    error_type = "False Negative (Missed Object)"
+                    is_error = True
+                elif len(pred_boxes) > len(gt_boxes):
+                    error_type = "False Positive (Ghost Detection)"
+                    is_error = True
+                else:
+                    for p in pred_boxes:
+                        ious = [calculate_iou(p["box"], g["box"]) for g in gt_boxes]
+                        best_iou = max(ious) if ious else 0
+                        best_gt_idx = np.argmax(ious) if ious else 0
+
+                        if best_iou < 0.3:
+                            error_type = "Poor Localization"
+                            is_error = True
+                        elif p["label"] != gt_boxes[best_gt_idx]["label"]:
+                            error_type = f"Wrong Class (P:{p['label']} vs G:{gt_boxes[best_gt_idx]['label']})"
+                            is_error = True
+
+                # plot if there's an error
+                if is_error:
+                    img = images[b].permute(1, 2, 0).numpy()
+
+                    fig, ax = plt.subplots(1, figsize=(6, 6))
+                    ax.imshow(np.clip(img, 0, 1))
+
+                    for g in gt_boxes:
+                        i, j = g["grid"]
+                        x_c, y_c, w, h = g["box"]
+                        px = ((j + x_c) / 7) * INPUT_IMG_SZ
+                        py = ((i + y_c) / 7) * INPUT_IMG_SZ
+                        pw, ph = w * INPUT_IMG_SZ, h * INPUT_IMG_SZ
+
+                        rect = patches.Rectangle(
+                            (px - pw / 2, py - ph / 2),
+                            pw,
+                            ph,
+                            linewidth=2,
+                            edgecolor="lime",
+                            facecolor="none",
+                        )
+                        ax.add_patch(rect)
+
+                    for p in pred_boxes:
+                        i, j = p["grid"]
+                        x_c, y_c, w, h = p["box"]
+                        px = ((j + x_c) / 7) * INPUT_IMG_SZ
+                        py = ((i + y_c) / 7) * INPUT_IMG_SZ
+                        pw, ph = w * INPUT_IMG_SZ, h * INPUT_IMG_SZ
+
+                        rect = patches.Rectangle(
+                            (px - pw / 2, py - ph / 2),
+                            pw,
+                            ph,
+                            linewidth=2,
+                            edgecolor="red",
+                            facecolor="none",
+                            linestyle="--",
+                        )
+                        ax.add_patch(rect)
+                        ax.text(
+                            px - pw / 2,
+                            py - ph / 2 - 2,
+                            f"P:{p['label']} {p['conf']:.2f}",
+                            color="red",
+                            fontsize=8,
+                            bbox=dict(facecolor="black", alpha=0.5),
+                        )
+
+                    plt.title(f"Error: {error_type}")
+                    plt.axis("off")
+
+                    clean_name = error_type.split("(")[0].strip().replace(" ", "_")
+                    plt.savefig(f"{save_path}/{clean_name}_{count}.png")
+                    plt.close()
+                    count += 1
 
 
 def calculate_iou(box1, box2):
@@ -114,12 +161,9 @@ def calculate_iou(box1, box2):
 
 
 def apply_nms(bboxes, iou_threshold=0.45):
-    """
-    bboxes: list of {'box': [x,y,w,h], 'label': l, 'conf': c}
-    """
     if not bboxes:
         return []
-    # Sort by confidence
+
     bboxes = sorted(bboxes, key=lambda x: x["conf"], reverse=True)
     bboxes_after_nms = []
 
@@ -138,10 +182,9 @@ def apply_nms(bboxes, iou_threshold=0.45):
 def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
     model.eval()
     y_true, y_pred = [], []
-    # 2 represents "Background / No Object"
 
     with torch.no_grad():
-        for images, targets in loader:
+        for images, targets, _ in loader:
             images = images.to(device)
             outputs = model(images).cpu()
 
@@ -174,7 +217,6 @@ def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
                 if use_nms:
                     pred_boxes = apply_nms(pred_boxes)
 
-                # Track which preds found a GT
                 for p in pred_boxes:
                     best_iou, best_gt_idx = 0, -1
                     for idx, g in enumerate(gt_boxes):
@@ -184,65 +226,61 @@ def get_metrics(model, loader, threshold, iou_threshold=0.5, use_nms=True):
 
                     if best_iou >= iou_threshold and best_gt_idx != -1:
                         if not gt_boxes[best_gt_idx]["matched"]:
-                            # True Positive or Misclassification
+
                             y_true.append(gt_boxes[best_gt_idx]["label"])
                             y_pred.append(p["label"])
                             gt_boxes[best_gt_idx]["matched"] = True
                         else:
-                            # Matched an already claimed GT -> False Positive (Duplicate)
-                            y_true.append(2)  # Truth is "Background"
+
+                            y_true.append(2)
                             y_pred.append(p["label"])
                     else:
-                        # No GT match -> False Positive (Ghost box)
-                        y_true.append(2)  # Truth is "Background"
+
+                        y_true.append(2)
                         y_pred.append(p["label"])
 
-                # Record False Negatives (Missed GTs)
                 for g in gt_boxes:
                     if not g["matched"]:
                         y_true.append(g["label"])
-                        y_pred.append(2)  # Prediction is "Background"
+                        y_pred.append(2)
 
     return y_true, y_pred
 
 
-# --- EXECUTION ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = NN_model().to(device)
 model.load_state_dict(torch.load("best_yolo_model.pth"))
 
-# 1. Denser Sweep for PR Curve & Optimal Threshold
-# We use more points (20+) to get a smooth curve and accurate best threshold
-thresholds = np.linspace(0.01, 0.99, num=20)  # Adjust range and num as needed
+
+thresholds = np.linspace(0.01, 0.99, num=20)
 precisions, recalls = [], []
 
 print("Running Threshold Sweep for mAP calculation...")
 for t in thresholds:
-    # get_metrics now returns (y_true, y_pred)
+
     y_true_sweep, y_pred_sweep = get_metrics(model, train_loader, t, use_nms=True)
-    
-    # Calculate Precision and Recall for this specific threshold
+
     # 0=Cat, 1=Dog, 2=Background
     tp = sum(1 for gt, pd in zip(y_true_sweep, y_pred_sweep) if gt == pd and gt != 2)
     fp = sum(1 for gt, pd in zip(y_true_sweep, y_pred_sweep) if gt == 2 and pd != 2)
     fn = sum(1 for gt, pd in zip(y_true_sweep, y_pred_sweep) if gt != 2 and pd == 2)
-    
+
     p = tp / (tp + fp + 1e-6)
     r = tp / (tp + fn + 1e-6)
-    
+
     precisions.append(p)
     recalls.append(r)
     print(f"Threshold {t:.2f} -> Precision: {p:.4f}, Recall: {r:.4f}")
 
-# Calculate F1-score for each threshold to find the "Optimal" balance
 f1_scores = [2 * (p * r) / (p + r + 1e-6) for p, r in zip(precisions, recalls)]
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx]
-print(f"Best Threshold based on F1-Score: {best_threshold:.4f} with F1: {f1_scores[best_idx]:.4f}")
+print(
+    f"Best Threshold based on F1-Score: {best_threshold:.4f} with F1: {f1_scores[best_idx]:.4f}"
+)
 max_f1 = f1_scores[best_idx]
 
-# Calculate mAP using the trapezoidal rule (area under PR curve)
-# We sort by recall to ensure the integral is calculated correctly
+
 sorted_indices = np.argsort(recalls)
 mAP = np.trapezoid(
     np.array(precisions)[sorted_indices], np.array(recalls)[sorted_indices]
@@ -252,7 +290,7 @@ print(f" Optimal Threshold: {best_threshold:.4f}")
 print(f" Max F1-Score: {max_f1:.4f}")
 print(f" Calculated mAP: {mAP:.4f}")
 
-# 2. Plot Precision-Recall Curve
+
 plt.figure(figsize=(8, 6))
 plt.plot(
     recalls, precisions, color="darkorange", lw=2, label=f"P-R Curve (mAP = {mAP:.2f})"
@@ -271,15 +309,14 @@ plt.grid(True, linestyle="--", alpha=0.6)
 plt.savefig("results/Precision_Recall_Curve.png")
 plt.close()
 
-# 3. Validation Performance at Optimal Threshold
+
 print(f" Generating Confusion Matrix on Validation Set...")
 y_true, y_pred = get_metrics(model, val_loader, best_threshold)
 
 if len(y_true) > 0:
-    # labels=[0, 1, 2] corresponds to Cat, Dog, Background
+
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
 
-    # Create the display with the new background label
     disp = ConfusionMatrixDisplay(
         confusion_matrix=cm, display_labels=["Cat", "Dog", "Background"]
     )
@@ -291,7 +328,7 @@ if len(y_true) > 0:
     plt.savefig("results/confusion_matrix_full.png")
     plt.close()
 
-# 4. Save Misclassifications
+# Save Misclassifications
 print(f" Saving misclassification examples...")
 save_misclassification_images(model, val_loader, best_threshold, max_images=20)
 print("Done! Check the 'results/' directory.")
